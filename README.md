@@ -17,13 +17,15 @@ This repository also includes a (vibe-coded) Zig QOI encoder / decoder.
 
 Download the PyTorch weights and convert them to safetensors:
 
-```sh
+```bash
 ./convert.py
 ```
 
 ## Build and run
 
-```sh
+```bash
 bazel build --config=release //:informativedrawings
-bazel run --config=release //:informativedrawings -- "$PWD"/model2.safetensors "$PWD"/zml.qoi "$PWD"/zml.drawing.qoi
+
+bazel run --config=release //:informativedrawings -- \
+    "$PWD"/model2.safetensors "$PWD"/zml.qoi "$PWD"/zml.drawing.qoi
 ```
