@@ -2,7 +2,6 @@ const std = @import("std");
 const log = std.log;
 
 const zml = @import("zml");
-const stdx = zml.stdx;
 const qoi = @import("qoi.zig");
 
 pub const std_options: std.Options = .{
@@ -91,10 +90,10 @@ const ResidualBlock = struct {
 
     pub fn init(view: zml.io.TensorStore.View) ResidualBlock {
         return .{
-            .conv1_weight = view.createTensor("conv_block.1.weight"),
-            .conv1_bias = view.createTensor("conv_block.1.bias"),
-            .conv2_weight = view.createTensor("conv_block.5.weight"),
-            .conv2_bias = view.createTensor("conv_block.5.bias"),
+            .conv1_weight = view.createTensor("conv_block.1.weight", null, .replicated),
+            .conv1_bias = view.createTensor("conv_block.1.bias", null, .replicated),
+            .conv2_weight = view.createTensor("conv_block.5.weight", null, .replicated),
+            .conv2_bias = view.createTensor("conv_block.5.bias", null, .replicated),
         };
     }
 
@@ -142,21 +141,21 @@ const Generator = struct {
 
     pub fn init(store: zml.io.TensorStore.View) Generator {
         return .{
-            .model0_conv_weight = store.createTensor("model0.1.weight"),
-            .model0_conv_bias = store.createTensor("model0.1.bias"),
-            .model1_conv0_weight = store.createTensor("model1.0.weight"),
-            .model1_conv0_bias = store.createTensor("model1.0.bias"),
-            .model1_conv1_weight = store.createTensor("model1.3.weight"),
-            .model1_conv1_bias = store.createTensor("model1.3.bias"),
+            .model0_conv_weight = store.createTensor("model0.1.weight", null, .replicated),
+            .model0_conv_bias = store.createTensor("model0.1.bias", null, .replicated),
+            .model1_conv0_weight = store.createTensor("model1.0.weight", null, .replicated),
+            .model1_conv0_bias = store.createTensor("model1.0.bias", null, .replicated),
+            .model1_conv1_weight = store.createTensor("model1.3.weight", null, .replicated),
+            .model1_conv1_bias = store.createTensor("model1.3.bias", null, .replicated),
             .res_block0 = ResidualBlock.init(store.withPrefix("model2.0")),
             .res_block1 = ResidualBlock.init(store.withPrefix("model2.1")),
             .res_block2 = ResidualBlock.init(store.withPrefix("model2.2")),
-            .model3_conv0_weight = store.createTensor("model3.0.weight"),
-            .model3_conv0_bias = store.createTensor("model3.0.bias"),
-            .model3_conv1_weight = store.createTensor("model3.3.weight"),
-            .model3_conv1_bias = store.createTensor("model3.3.bias"),
-            .model4_conv_weight = store.createTensor("model4.1.weight"),
-            .model4_conv_bias = store.createTensor("model4.1.bias"),
+            .model3_conv0_weight = store.createTensor("model3.0.weight", null, .replicated),
+            .model3_conv0_bias = store.createTensor("model3.0.bias", null, .replicated),
+            .model3_conv1_weight = store.createTensor("model3.3.weight", null, .replicated),
+            .model3_conv1_bias = store.createTensor("model3.3.bias", null, .replicated),
+            .model4_conv_weight = store.createTensor("model4.1.weight", null, .replicated),
+            .model4_conv_bias = store.createTensor("model4.1.bias", null, .replicated),
         };
     }
 
@@ -201,8 +200,7 @@ const Generator = struct {
         platform: *const zml.Platform,
         store: *const zml.io.TensorStore,
     ) !zml.Bufferized(Generator) {
-        return zml.io.load(Generator, self, allocator, io, platform, .{
-            .store = store,
+        return zml.io.load(Generator, self, allocator, io, platform, store, .{
             .parallelism = 4,
             .dma_chunks = 8,
             .dma_chunk_size = 16 * 1024 * 1024,
@@ -333,15 +331,15 @@ pub fn main(init: std.process.Init) !void {
 
     // Auto-select platform
     const platform: *zml.Platform = try .auto(allocator, io, .{});
-    defer platform.deinit(allocator);
+    defer platform.deinit(allocator, io);
 
     // Compile model with the actual input dimensions
     const input_shape: zml.Tensor = .init(.{ 1, 3, img.height, img.width }, .f32);
     var exe = blk: {
         log.info("Compiling model...", .{});
         const start: std.Io.Timestamp = .now(io, .awake);
-        defer log.info("Compiled model [{D}]", .{stdx.fmt.fmtDuration(start.untilNow(io, .awake))});
-        break :blk try platform.compile(allocator, io, model, .forward, .{input_shape});
+        defer log.info("Compiled model [{f}]", .{start.untilNow(io, .awake)});
+        break :blk try platform.compile(allocator, io, model, .forward, .{input_shape}, .{});
     };
     defer exe.deinit();
 
@@ -349,7 +347,7 @@ pub fn main(init: std.process.Init) !void {
     var model_buffers = blk: {
         log.info("Transferring weights...", .{});
         const start: std.Io.Timestamp = .now(io, .awake);
-        defer log.info("Transferred weights [{D}]", .{stdx.fmt.fmtDuration(start.untilNow(io, .awake))});
+        defer log.info("Transferred weights [{f}]", .{start.untilNow(io, .awake)});
         break :blk try model.load(allocator, io, platform, &store);
     };
     defer Generator.unloadBuffers(&model_buffers);
@@ -359,6 +357,7 @@ pub fn main(init: std.process.Init) !void {
         io,
         platform,
         zml.Slice.init(input_shape.shape(), std.mem.sliceAsBytes(img.data)),
+        .replicated,
     );
     defer input_buffer.deinit();
 
